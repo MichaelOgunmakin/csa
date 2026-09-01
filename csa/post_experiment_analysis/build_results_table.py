@@ -5,13 +5,15 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 
+from csa.post_experiment_analysis.experiment_summary import experiment_summary
 from csa.post_experiment_analysis.experiment_summary_by_segment import (
     experiment_summary_by_segment,
 )
+from csa.post_experiment_analysis.check_power import check_power
 from csa.post_experiment_analysis.check_power_by_segment import check_power_by_segment
 
 
-def build_results_table(
+def experiment_results_table(
     df,
     treatment: str,
     segments: List[str],
@@ -68,10 +70,13 @@ def build_results_table(
         group_b               – alphabetically second group (variant in the comparison)
         kpi_a                 – mean KPI for group_a
         kpi_b                 – mean KPI for group_b
-        treatment_effect_abs  – absolute lift: kpi_b − kpi_a
-        treatment_effect_rel  – relative lift: (kpi_b − kpi_a) / kpi_a
-        statistically_significant – True if p_value < alpha
+        treatment_effect_abs       – absolute lift: kpi_b − kpi_a
+        ci_low                – lower bound of the absolute lift CI
+        ci_hi                 – upper bound of the absolute lift CI
+        treatment_effect_rel       – relative lift: (kpi_b − kpi_a) / kpi_a
+        statistically_significant  – True if p_value < alpha
         p_value               – raw p-value
+        alpha                 – significance level used
         sufficiently_powered  – True/False; None for non-control comparisons
         target_power_pct      – target power as a percentage (e.g. 80.0)
         achieved_power_pct    – achieved power as a percentage; None for
@@ -80,7 +85,87 @@ def build_results_table(
         volume_a              – count for group_a
         volume_b              – count for group_b
     """
+    def _extract_rows(result_summary, power_result, segment_label, segment_value_label):
+        extracted = []
+        for _, row in result_summary.detail.iterrows():
+            # comparison format: "{b} vs {a}"
+            # where a < b alphabetically; n_a/kpi_a belong to a, n_b/kpi_b to b
+            parts = row["comparison"].split(" vs ", 1)
+            group_b = parts[0]   # alphabetically second
+            group_a = parts[1]   # alphabetically first
+
+            volume_a = int(row["n_a"])
+            volume_b = int(row["n_b"])
+
+            # Power metrics — only available for comparisons vs control
+            sufficiently_powered = None
+            target_power_pct = power * 100
+            achieved_power_pct = None
+
+            if power_result is not None and control_label in (group_a, group_b):
+                treat_label = group_b if group_a == control_label else group_a
+                comparison_key = f"{treat_label} vs {control_label}"
+
+                min_n = power_result.min_samples_per_group.get(comparison_key)
+                if min_n is not None:
+                    n_ctrl = power_result.actual_samples.get(control_label, 0)
+                    n_treat = power_result.actual_samples.get(treat_label, 0)
+                    sufficiently_powered = (
+                        bool(n_ctrl >= min_n and n_treat >= min_n)
+                        if np.isfinite(min_n)
+                        else False
+                    )
+
+                ap = power_result.achieved_power.get(comparison_key)
+                if ap is not None and np.isfinite(ap):
+                    achieved_power_pct = round(ap * 100, 2)
+
+            extracted.append({
+                "segment": segment_label,
+                "segment_value": segment_value_label,
+                "kpi": kpi,
+                "group_a": group_a,
+                "group_b": group_b,
+                "kpi_a": row["kpi_a"],
+                "kpi_b": row["kpi_b"],
+                "treatment_effect_abs": row["abs_lift"],
+                "ci_low": row["ci_lo"],
+                "ci_hi": row["ci_hi"],
+                "treatment_effect_rel": row["rel_lift"],
+                "statistically_significant": bool(row["pval"] < alpha),
+                "p_value": row["pval"],
+                "alpha": alpha,
+                "sufficiently_powered": sufficiently_powered,
+                "target_power_pct": target_power_pct,
+                "achieved_power_pct": achieved_power_pct,
+                "volume_total": volume_a + volume_b,
+                "volume_a": volume_a,
+                "volume_b": volume_b,
+            })
+        return extracted
+
     rows = []
+
+    for kpi in kpis:
+        overall_summary = experiment_summary(
+            df=df,
+            treatment=treatment,
+            kpi=kpi,
+            alpha=alpha,
+            spark_max_rows=spark_max_rows,
+        )
+        overall_power = check_power(
+            df=df,
+            treatment=treatment,
+            kpi=kpi,
+            unit=unit,
+            control_label=control_label,
+            power=power,
+            alpha=alpha,
+            test_type=test_type,
+            spark_max_rows=spark_max_rows,
+        )
+        rows.extend(_extract_rows(overall_summary, overall_power, "overall", "overall"))
 
     for segment in segments:
         for kpi in kpis:
@@ -108,59 +193,6 @@ def build_results_table(
 
             for seg_value, result_summary in seg_summary.segments.items():
                 power_result = seg_power.segments.get(seg_value)
-
-                for _, row in result_summary.detail.iterrows():
-                    # comparison format: "{b} vs {a}"
-                    # where a < b alphabetically; n_a/kpi_a belong to a, n_b/kpi_b to b
-                    parts = row["comparison"].split(" vs ", 1)
-                    group_b = parts[0]   # alphabetically second
-                    group_a = parts[1]   # alphabetically first
-
-                    volume_a = int(row["n_a"])
-                    volume_b = int(row["n_b"])
-
-                    # Power metrics — only available for comparisons vs control
-                    sufficiently_powered = None
-                    target_power_pct = power * 100
-                    achieved_power_pct = None
-
-                    if power_result is not None and control_label in (group_a, group_b):
-                        # Identify which side is the treatment variant
-                        treat_label = group_b if group_a == control_label else group_a
-                        comparison_key = f"{treat_label} vs {control_label}"
-
-                        min_n = power_result.min_samples_per_group.get(comparison_key)
-                        if min_n is not None:
-                            n_ctrl = power_result.actual_samples.get(control_label, 0)
-                            n_treat = power_result.actual_samples.get(treat_label, 0)
-                            sufficiently_powered = (
-                                bool(n_ctrl >= min_n and n_treat >= min_n)
-                                if np.isfinite(min_n)
-                                else False
-                            )
-
-                        ap = power_result.achieved_power.get(comparison_key)
-                        if ap is not None and np.isfinite(ap):
-                            achieved_power_pct = round(ap * 100, 2)
-
-                    rows.append({
-                        "segment": segment,
-                        "segment_value": seg_value,
-                        "kpi": kpi,
-                        "group_a": group_a,
-                        "group_b": group_b,
-                        "kpi_a": row["kpi_a"],
-                        "kpi_b": row["kpi_b"],
-                        "treatment_effect_abs": row["abs_lift"],
-                        "treatment_effect_rel": row["rel_lift"],
-                        "statistically_significant": bool(row["pval"] < alpha),
-                        "p_value": row["pval"],
-                        "sufficiently_powered": sufficiently_powered,
-                        "target_power_pct": target_power_pct,
-                        "achieved_power_pct": achieved_power_pct,
-                        "volume_total": volume_a + volume_b,
-                        "volume_a": volume_a,
-                        "volume_b": volume_b,
-                    })
+                rows.extend(_extract_rows(result_summary, power_result, segment, seg_value))
 
     return pd.DataFrame(rows)
