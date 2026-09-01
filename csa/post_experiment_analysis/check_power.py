@@ -23,6 +23,7 @@ class PowerResult:
     observed_mdes: Dict[str, float]
     min_samples_per_group: Dict[str, float]   # float to accommodate inf
     metric_stds: Dict[str, float]
+    achieved_power: Dict[str, float]          # achieved power given actual sample sizes
 
     def __repr__(self) -> str:
         status = (
@@ -33,13 +34,15 @@ class PowerResult:
         lines = [
             status,
             f"  Baseline rate/mean: {self.baseline_rate:.4f}",
-            f"  Power: {self.power}  |  Alpha: {self.alpha}",
+            f"  Target power: {self.power}  |  Alpha: {self.alpha}",
         ]
         for comparison, mde in self.observed_mdes.items():
             min_n = self.min_samples_per_group[comparison]
             min_n_str = f"{int(min_n):,}" if np.isfinite(min_n) else "∞"
+            ap = self.achieved_power.get(comparison, np.nan)
+            ap_str = f"{ap:.1%}" if np.isfinite(ap) else "N/A"
             lines.append(
-                f"  [{comparison}]  Observed MDE: {mde:.4f},  Min sample per group: {min_n_str}"
+                f"  [{comparison}]  Observed MDE: {mde:.4f},  Min sample per group: {min_n_str},  Achieved power: {ap_str}"
             )
         return "\n".join(lines)
 
@@ -80,6 +83,7 @@ class PowerResult:
             req_rel = mde / self.baseline_rate if self.baseline_rate else np.nan
             sufficient = n_ctrl >= min_n and n_treat >= min_n
 
+            ap = self.achieved_power.get(comparison, np.nan)
             rows.append({
                 "Comparison": comparison,
                 "Actual N (Control)": f"{n_ctrl:,}",
@@ -93,6 +97,7 @@ class PowerResult:
                     if np.isfinite(req_rel)
                     else f"[{mde:.4f}, N/A]"
                 ),
+                "Achieved Power": f"{ap:.1%}" if np.isfinite(ap) else "N/A",
                 "Sufficient": "Yes" if sufficient else "No",
             })
         return pd.DataFrame(rows)
@@ -136,10 +141,12 @@ def check_power(
     observed_mdes: Dict[str, float] = {}
     min_samples_per_group: Dict[str, float] = {}
     metric_stds: Dict[str, float] = {}
+    achieved_power_dict: Dict[str, float] = {}
 
     for treat_label in treat_groups:
         key = f"{treat_label} vs {control_label}"
         treat_vals = d.loc[d[treatment] == treat_label, kpi].astype(float).to_numpy()
+        binding_n = min(actual[control_label], actual[treat_label])
 
         if binary:
             treat_rate = treat_vals.mean()
@@ -149,12 +156,21 @@ def check_power(
 
             if mde == 0:
                 min_samples_per_group[key] = float("inf")
+                achieved_power_dict[key] = alpha
                 continue
 
             h = 2 * (np.arcsin(np.sqrt(treat_rate)) - np.arcsin(np.sqrt(baseline)))
             min_n = zt_ind_solve_power(
                 effect_size=abs(h), alpha=alpha, power=power, alternative=alternative,
             )
+            try:
+                ap = zt_ind_solve_power(
+                    effect_size=abs(h), nobs1=binding_n, alpha=alpha, power=None,
+                    alternative=alternative,
+                )
+                achieved_power_dict[key] = float(np.clip(ap, 0.0, 1.0))
+            except Exception:
+                achieved_power_dict[key] = np.nan
         else:
             treat_mean = treat_vals.mean()
             mde = abs(treat_mean - baseline)
@@ -170,11 +186,20 @@ def check_power(
 
             if pooled_std == 0 or mde == 0:
                 min_samples_per_group[key] = float("inf")
+                achieved_power_dict[key] = alpha
                 continue
 
             min_n = tt_ind_solve_power(
                 effect_size=mde / pooled_std, alpha=alpha, power=power, alternative=alternative,
             )
+            try:
+                ap = tt_ind_solve_power(
+                    effect_size=mde / pooled_std, nobs1=binding_n, alpha=alpha, power=None,
+                    alternative=alternative,
+                )
+                achieved_power_dict[key] = float(np.clip(ap, 0.0, 1.0))
+            except Exception:
+                achieved_power_dict[key] = np.nan
 
         min_samples_per_group[key] = int(np.ceil(min_n))
 
@@ -196,4 +221,5 @@ def check_power(
         observed_mdes=observed_mdes,
         min_samples_per_group=min_samples_per_group,
         metric_stds=metric_stds,
+        achieved_power=achieved_power_dict,
     )

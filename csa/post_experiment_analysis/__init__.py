@@ -1,4 +1,5 @@
 from csa.post_experiment_analysis.experiment_summary import experiment_summary
+from csa.post_experiment_analysis.build_results_table import build_results_table
 from csa.post_experiment_analysis.experiment_summary_by_segment import (
     experiment_summary_by_segment,
     SegmentedResultsSummary,
@@ -18,6 +19,7 @@ from csa.post_experiment_analysis._helpers import ResultsSummary
 
 __all__ = [
     "experiment_summary",
+    "build_results_table",
     "experiment_summary_by_segment",
     "ResultsSummary",
     "SegmentedResultsSummary",
