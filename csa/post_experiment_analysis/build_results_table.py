@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
 import pandas as pd
+
+
+@dataclass(frozen=True)
+class ExperimentResultsTable:
+    df: pd.DataFrame
+
+    def show(self) -> None:
+        try:
+            from IPython.display import display
+            display(self.df)
+        except ImportError:
+            print(self.df.to_string())
 
 from csa.post_experiment_analysis.experiment_summary import experiment_summary
 from csa.post_experiment_analysis.experiment_summary_by_segment import (
@@ -24,7 +37,7 @@ def experiment_results_table(
     power: float = 0.80,
     test_type: str = "two_sided",
     spark_max_rows: Optional[int] = None,
-) -> pd.DataFrame:
+) -> ExperimentResultsTable:
     """Return a master results DataFrame across all segment × KPI combinations.
 
     For each pairwise comparison within every segment value and KPI, one row is
@@ -196,4 +209,4 @@ def experiment_results_table(
                 power_result = seg_power.segments.get(seg_value)
                 rows.extend(_extract_rows(result_summary, power_result, segment, seg_value))
 
-    return pd.DataFrame(rows)
+    return ExperimentResultsTable(df=pd.DataFrame(rows))
