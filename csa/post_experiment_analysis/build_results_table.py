@@ -124,6 +124,7 @@ def experiment_results_table(
                 "segment": segment_label,
                 "segment_value": segment_value_label,
                 "kpi": kpi,
+                "comparison": row["comparison"],
                 "group_a": group_a,
                 "group_b": group_b,
                 "kpi_a": row["kpi_a"],

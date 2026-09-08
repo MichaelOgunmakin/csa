@@ -104,14 +104,24 @@ def _run_comparisons(
             rel_ci_lo=r["rel_ci_lo"], rel_ci_hi=r["rel_ci_hi"],
         ))
 
+        if binary:
+            kpi_fmt = f"{a}: {r['kpi_a']:.2%}<br>{b}: {r['kpi_b']:.2%}"
+            abs_lift_fmt = f"{r['abs_lift']:.2%}"
+            ci_fmt = f"[{r['ci_lo']:.2%}, {r['ci_hi']:.2%}]"
+        else:
+            kpi_fmt = f"{a}: {r['kpi_a']:.4f}<br>{b}: {r['kpi_b']:.4f}"
+            abs_lift_fmt = f"{r['abs_lift']:.4f}"
+            ci_fmt = f"[{r['ci_lo']:.4f}, {r['ci_hi']:.4f}]"
+
         display_rows.append({
             "Comparison": comparison,
             "Sample Sizes": f"{a}: {vals_a.size:,}<br>{b}: {vals_b.size:,}",
-            "KPI": f"{a}: {r['kpi_a']:.4f}<br>{b}: {r['kpi_b']:.4f}",
-            "Absolute lift": f"{r['abs_lift']:.4f}",
+            "KPI": kpi_fmt,
+            "Absolute lift": abs_lift_fmt,
             "Relative lift": f"{r['rel_lift']:.2%}" if np.isfinite(r["rel_lift"]) else "",
             "p-value": f"{r['pval']:.4g}",
-            "CI lift": f"[{r['ci_lo']:.4f}, {r['ci_hi']:.4f}]",
+            "CI lift": ci_fmt,
+            "Stat Sig": str(r["pval"] < alpha),
         })
 
     return display_rows, detail_rows
@@ -122,7 +132,7 @@ def _run_comparisons(
 # ---------------------------------------------------------------------
 DISPLAY_COLS = [
     "Comparison", "Sample Sizes", "KPI",
-    "Absolute lift", "Relative lift", "p-value", "CI lift",
+    "Absolute lift", "Relative lift", "p-value", "CI lift", "Stat Sig",
 ]
 
 
