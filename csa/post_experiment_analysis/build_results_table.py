@@ -18,6 +18,9 @@ class ExperimentResultsTable:
         except ImportError:
             print(self.df.to_string())
 
+    def to_csv(self, *args, **kwargs):
+        return self.df.to_csv(*args, **kwargs)
+
 from csa.post_experiment_analysis.experiment_summary import experiment_summary
 from csa.post_experiment_analysis.experiment_summary_by_segment import (
     experiment_summary_by_segment,
@@ -137,6 +140,7 @@ def experiment_results_table(
                 "segment": segment_label,
                 "segment_value": segment_value_label,
                 "kpi": kpi,
+                "kpi_type": "proportion" if row["is_binary"] else "continuous",
                 "comparison": row["comparison"],
                 "group_a": group_a,
                 "group_b": group_b,

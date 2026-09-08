@@ -102,6 +102,7 @@ def _run_comparisons(
             abs_lift=r["abs_lift"], rel_lift=r["rel_lift"],
             pval=r["pval"], ci_lo=r["ci_lo"], ci_hi=r["ci_hi"],
             rel_ci_lo=r["rel_ci_lo"], rel_ci_hi=r["rel_ci_hi"],
+            is_binary=binary,
         ))
 
         if binary:
